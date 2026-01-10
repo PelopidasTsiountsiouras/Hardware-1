@@ -2,10 +2,10 @@
 
 module alu_tb;
 
-  reg  [31:0] op1, op2;
-  reg  [3:0]  alu_op;
+  reg [31:0] op1, op2;
+  reg [3:0]  alu_op;
   wire [31:0] result;
-  wire        zero, ovf;
+  wire zero, ovf;
 
   alu dut (
     .op1(op1),
@@ -16,14 +16,14 @@ module alu_tb;
     .ovf(ovf)
   );
 
-  localparam ALU_AND         = 4'b1000;
-  localparam ALU_OR          = 4'b1001;
-  localparam ALU_NOR         = 4'b1010;
-  localparam ALU_NAND        = 4'b1011;
-  localparam ALU_XOR         = 4'b1100;
-  localparam ALU_ADD         = 4'b0100;
-  localparam ALU_SUB         = 4'b0101;
-  localparam ALU_MUL         = 4'b0110;
+  localparam ALU_AND = 4'b1000;
+  localparam ALU_OR  = 4'b1001;
+  localparam ALU_NOR = 4'b1010;
+  localparam ALU_NAND = 4'b1011;
+  localparam ALU_XOR = 4'b1100;
+  localparam ALU_ADD = 4'b0100;
+  localparam ALU_SUB = 4'b0101;
+  localparam ALU_MUL = 4'b0110;
   localparam ALU_LOG_SHIFT_R = 4'b0000;
   localparam ALU_LOG_SHIFT_L = 4'b0001;
   localparam ALU_ARI_SHIFT_R = 4'b0010;
@@ -31,8 +31,8 @@ module alu_tb;
 
   task check;
     input [31:0] exp_result;
-    input        exp_zero;
-    input        exp_ovf;
+    input exp_zero;
+    input exp_ovf;
     begin
       #1;
       if (result !== exp_result || zero !== exp_zero || ovf !== exp_ovf)
