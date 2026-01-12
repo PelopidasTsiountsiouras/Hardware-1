@@ -77,42 +77,42 @@ module tb_nn;
       temp = inter_1 * weight_1;
       // Check multiplication overflow
       if (temp[63:31] != {33{temp[31]}}) begin
-        nn_model = {1'b1, 32'h7FFFFFFF};
+        nn_model = {1'b1, 32'hFFFFFFFF};
       end else begin
         inter_3 = temp[31:0] + bias_1;
         // Check addition overflow
         if ((~(temp[31] ^ bias_1[31])) & (inter_3[31] ^ temp[31])) begin
-          nn_model = {1'b1, 32'h7FFFFFFF};
+          nn_model = {1'b1, 32'hFFFFFFFF};
         end else begin
           // Input layer - neuron 2
           temp = inter_2 * weight_2;
           // Check multiplication overflow
           if (temp[63:31] != {33{temp[31]}}) begin
-            nn_model = {1'b1, 32'h7FFFFFFF};
+            nn_model = {1'b1, 32'hFFFFFFFF};
           end else begin
             inter_4 = temp[31:0] + bias_2;
             // Check addition overflow
             if ((~(temp[31] ^ bias_2[31])) & (inter_4[31] ^ temp[31])) begin
-              nn_model = {1'b1, 32'h7FFFFFFF};
+              nn_model = {1'b1, 32'hFFFFFFFF};
             end else begin
               // Output layer: inter_5 = inter_3*w3 + inter_4*w4 + b3
               // Step 1: inter_3 * weight_3 + bias_3
               temp = inter_3 * weight_3;
               if (temp[63:31] != {33{temp[31]}}) begin
-                nn_model = {1'b1, 32'h7FFFFFFF};
+                nn_model = {1'b1, 32'hFFFFFFFF};
               end else begin
                 inter_5 = temp[31:0] + bias_3;
                 if ((~(temp[31] ^ bias_3[31])) & (inter_5[31] ^ temp[31])) begin
-                  nn_model = {1'b1, 32'h7FFFFFFF};
+                  nn_model = {1'b1, 32'hFFFFFFFF};
                 end else begin
                   // Step 2: inter_4 * weight_4 + inter_5
                   temp = inter_4 * weight_4;
                   if (temp[63:31] != {33{temp[31]}}) begin
-                    nn_model = {1'b1, 32'h7FFFFFFF};
+                    nn_model = {1'b1, 32'hFFFFFFFF};
                   end else begin
                     inter_5 = temp[31:0] + inter_5;
                     if ((~(temp[31] ^ inter_5[31])) & (inter_5[31] ^ temp[31])) begin
-                      nn_model = {1'b1, 32'h7FFFFFFF};
+                      nn_model = {1'b1, 32'hFFFFFFFF};
                     end else begin
                       // Postprocess layer: logical shift left
                       nn_model = {1'b0, inter_5 << shift_bias_3};
@@ -175,13 +175,13 @@ module tb_nn;
       // Check result
       total_tests = total_tests + 1;
       if (ref_overflow) begin
-        if (total_ovf && final_output === 32'h7FFFFFFF) begin
+        if (total_ovf && final_output === 32'hFFFFFFFF) begin
           pass_count = pass_count + 1;
         end else begin
           $display("FAIL at time %0t ns:", $time);
           $display("  Input1 = %h (%0d), Input2 = %h (%0d)", 
                    input_1, $signed(input_1), input_2, $signed(input_2));
-          $display("  Expected overflow with MAX_POS");
+          $display("  Expected overflow (-1)");
           $display("  DUT: ovf=%b, output=%h", total_ovf, final_output);
         end
       end else begin
@@ -209,7 +209,7 @@ module tb_nn;
       
       total_tests = total_tests + 1;
       if (ref_overflow) begin
-        if (total_ovf && final_output === 32'h7FFFFFFF) begin
+        if (total_ovf && final_output === 32'hFFFFFFFF) begin
           pass_count = pass_count + 1;
         end else begin
           $display("FAIL (overflow case) at time %0t ns:", $time);
@@ -240,7 +240,7 @@ module tb_nn;
       
       total_tests = total_tests + 1;
       if (ref_overflow) begin
-        if (total_ovf && final_output === 32'h7FFFFFFF) begin
+        if (total_ovf && final_output === 32'hFFFFFFFF) begin
           pass_count = pass_count + 1;
         end else begin
           $display("FAIL (overflow case) at time %0t ns:", $time);

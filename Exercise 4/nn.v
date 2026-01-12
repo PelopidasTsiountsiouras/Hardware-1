@@ -31,7 +31,7 @@ module nn (
   localparam [3:0] ALU_ARI_SHIFT_R = 4'b0010;
 
   // Max positive signed 32-bit
-  localparam [31:0] MAX_POS = 32'h7FFFFFFF;
+  localparam [31:0] OVF_VALUE = 32'hFFFFFFFF; // -1 signed
 
   // Weight loading control
   reg        weight_loaded;
@@ -350,7 +350,7 @@ module nn (
         if (ovf_input_stage) begin
           total_ovf <= 1'b1;
           ovf_fsm_stage <= S_INPUT;
-          final_output <= MAX_POS;
+          final_output <= OVF_VALUE;
         end
         
         // Check for zero in input stage
@@ -368,7 +368,7 @@ module nn (
         if (ovf_output_stage) begin
           total_ovf <= 1'b1;
           ovf_fsm_stage <= S_OUTPUT;
-          final_output <= MAX_POS;
+          final_output <= OVF_VALUE;
         end
         
         // Check for zero in output stage
