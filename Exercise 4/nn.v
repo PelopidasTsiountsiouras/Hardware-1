@@ -15,27 +15,14 @@ module nn (
   input enable
 );
 
-  // Preprocess results
-  wire [31:0] inter_1, inter_2;
-
-  // Input layer results
-  wire [31:0] inter_3, inter_4;
-
-  // Output layer results
-  wire [31:0] inter_5;
-  wire [31:0] out_tmp;     // intermediate for output-layer two-MAC chain
-
-  // Postprocess result (wire), then you can latch to final_output in FSM if you want
-  wire [31:0] post_out;
-
   // FSM state encoding
   localparam [2:0] S_DEACTIVATED = 3'b000;
-  localparam [2:0] S_LOAD_WB = 3'b001;
-  localparam [2:0] S_PREPROCESS = 3'b010;
-  localparam [2:0] S_INPUT = 3'b011;
-  localparam [2:0] S_OUTPUT = 3'b100;
-  localparam [2:0] S_POST = 3'b101;
-  localparam [2:0] S_IDLE = 3'b110;
+  localparam [2:0] S_LOAD_WB     = 3'b001;
+  localparam [2:0] S_PREPROCESS  = 3'b010;
+  localparam [2:0] S_INPUT       = 3'b011;
+  localparam [2:0] S_OUTPUT      = 3'b100;
+  localparam [2:0] S_POST        = 3'b101;
+  localparam [2:0] S_IDLE        = 3'b110;
 
   reg [2:0] state, next_state;
 
@@ -54,11 +41,7 @@ module nn (
   reg write;
   reg [3:0] writeReg1, writeReg2;
   reg [31:0] writeData1, writeData2;
-
-  // READ ADDRESSES MUST BE REGS (FSM-driven)
   reg [3:0] readReg1, readReg2, readReg3, readReg4;
-
-  // READ DATA are WIRES (regfile-driven)
   wire [31:0] readData1, readData2, readData3, readData4;
 
   // Regfile instance
@@ -80,29 +63,31 @@ module nn (
     .readData4(readData4)
   );
 
-  // In PREPROCESS state you will set:
-  //   readReg1=0x2 (shift_bias_1), readReg2=0x3 (shift_bias_2)
-  wire [31:0] shift_bias_1 = readData1;
-  wire [31:0] shift_bias_2 = readData2;
+  // Registered intermediate values
+  reg [31:0] inter_1_reg, inter_2_reg;  // After preprocess
+  reg [31:0] inter_3_reg, inter_4_reg;  // After input layer
+  reg [31:0] inter_5_reg;                // After output layer
+  reg [31:0] shift_bias_3_reg;           // Stored shift value for post-processing
+  
+  // Wires for combinational paths
+  wire [31:0] inter_1, inter_2;
+  wire [31:0] inter_3, inter_4;
+  wire [31:0] out_tmp;
+  wire [31:0] inter_5;
+  wire [31:0] post_out;
 
-  // In INPUT state you will set:
-  //   readReg1=0x4 (w1), readReg2=0x5 (b1), readReg3=0x6 (w2), readReg4=0x7 (b2)
-  wire [31:0] weight_1 = readData1;
-  wire [31:0] bias_1 = readData2;
-  wire [31:0] weight_2 = readData3;
-  wire [31:0] bias_2 = readData4;
+  // Shift parameters (read from regfile during appropriate states)
+  wire [31:0] shift_bias_1 = readData1;  // Read in PREPROCESS
+  wire [31:0] shift_bias_2 = readData2;  // Read in PREPROCESS
+  wire [31:0] weight_1 = readData1;      // Read in INPUT
+  wire [31:0] bias_1 = readData2;        // Read in INPUT
+  wire [31:0] weight_2 = readData3;      // Read in INPUT
+  wire [31:0] bias_2 = readData4;        // Read in INPUT
+  wire [31:0] weight_3 = readData1;      // Read in OUTPUT
+  wire [31:0] weight_4 = readData2;      // Read in OUTPUT
+  wire [31:0] bias_3 = readData3;        // Read in OUTPUT
 
-  // In OUTPUT state you will set:
-  //   readReg1=0x8 (w3), readReg2=0x9 (w4), readReg3=0xA (b3)
-  wire [31:0] weight_3 = readData1;
-  wire [31:0] weight_4 = readData2;
-  wire [31:0] bias_3 = readData3;
-
-  // In POST state you will set:
-  //   readReg1=0xB (shift_bias_3)
-  wire [31:0] shift_bias_3 = readData1;
-
-  // ALUs for preprocess/postprocess shifts
+  // ALUs for preprocess shifts
   alu alu_shift_r1 (
     .op1(input_1),
     .op2(shift_bias_1),
@@ -121,26 +106,12 @@ module nn (
     .ovf()
   );
 
-  alu alu_shift_l_out (
-    .op1(inter_5),
-    .op2(shift_bias_3),
-    .alu_op(ALU_LOG_SHIFT_L),
-    .result(post_out),
-    .zero(),
-    .ovf()
-  );
-
-  // ----------------------------
-  // MAC units
-  // INPUT LAYER: two neurons in parallel
-  // inter_3 = inter_1*w1 + b1
-  // inter_4 = inter_2*w2 + b2
-  // ----------------------------
+  // MAC units for INPUT LAYER
   wire zero_mul_in1, zero_add_in1, ovf_mul_in1, ovf_add_in1;
   wire zero_mul_in2, zero_add_in2, ovf_mul_in2, ovf_add_in2;
 
   mac_unit mac_in1 (
-    .op1(inter_1),
+    .op1(inter_1_reg),
     .op2(weight_1),
     .op3(bias_1),
     .total_result(inter_3),
@@ -151,7 +122,7 @@ module nn (
   );
 
   mac_unit mac_in2 (
-    .op1(inter_2),
+    .op1(inter_2_reg),
     .op2(weight_2),
     .op3(bias_2),
     .total_result(inter_4),
@@ -161,18 +132,12 @@ module nn (
     .ovf_add(ovf_add_in2)
   );
 
-  // ----------------------------
-  // OUTPUT LAYER: two MACs in series to match the PDF:
-  // inter_5 = inter_3*w3 + inter_4*w4 + b3
-  //
-  // Step A: out_tmp = inter_3*w3 + b3
-  // Step B: inter_5 = inter_4*w4 + out_tmp
-  // ----------------------------
+  // MAC units for OUTPUT LAYER
   wire zero_mul_o1, zero_add_o1, ovf_mul_o1, ovf_add_o1;
   wire zero_mul_o2, zero_add_o2, ovf_mul_o2, ovf_add_o2;
 
   mac_unit mac_out1 (
-    .op1(inter_3),
+    .op1(inter_3_reg),
     .op2(weight_3),
     .op3(bias_3),
     .total_result(out_tmp),
@@ -183,7 +148,7 @@ module nn (
   );
 
   mac_unit mac_out2 (
-    .op1(inter_4),
+    .op1(inter_4_reg),
     .op2(weight_4),
     .op3(out_tmp),
     .total_result(inter_5),
@@ -193,18 +158,22 @@ module nn (
     .ovf_add(ovf_add_o2)
   );
 
-  // Overflow / zero aggregation wires (FSM will use these)
-  wire any_ovf =
-      ovf_mul_in1 | ovf_add_in1 |
-      ovf_mul_in2 | ovf_add_in2 |
-      ovf_mul_o1  | ovf_add_o1  |
-      ovf_mul_o2  | ovf_add_o2;
+  // ALU for postprocess shift (uses registered shift_bias_3_reg)
+  alu alu_shift_l_out (
+    .op1(inter_5_reg),
+    .op2(shift_bias_3_reg),
+    .alu_op(ALU_LOG_SHIFT_L),
+    .result(post_out),
+    .zero(),
+    .ovf()
+  );
 
-  wire any_zero =
-      zero_mul_in1 | zero_add_in1 |
-      zero_mul_in2 | zero_add_in2 |
-      zero_mul_o1  | zero_add_o1  |
-      zero_mul_o2  | zero_add_o2;
+  // Stage-specific overflow detection
+  wire ovf_input_stage  = ovf_mul_in1 | ovf_add_in1 | ovf_mul_in2 | ovf_add_in2;
+  wire ovf_output_stage = ovf_mul_o1  | ovf_add_o1  | ovf_mul_o2  | ovf_add_o2;
+  
+  wire zero_input_stage  = zero_mul_in1 | zero_add_in1 | zero_mul_in2 | zero_add_in2;
+  wire zero_output_stage = zero_mul_o1  | zero_add_o1  | zero_mul_o2  | zero_add_o2;
 
   // ROM-style loader
   reg [31:0] rom_data;
@@ -242,6 +211,7 @@ module nn (
     endcase
   end
   
+  // FSM combinational logic
   always @(*) begin
     // DEFAULTS 
     next_state = state;
@@ -255,11 +225,10 @@ module nn (
     readReg3 = 4'd0;
     readReg4 = 4'd0;
     
-    // FSM LOGIC
     case (state)
 
       S_DEACTIVATED: begin
-        if (enable)
+        if (enable && resetn)
           next_state = S_LOAD_WB;
       end
 
@@ -273,45 +242,43 @@ module nn (
       end
 
       S_PREPROCESS: begin
-        // read shift_bias_1, shift_bias_2
-        readReg1 = 4'h2;
-        readReg2 = 4'h3;
+        // Read shift biases
+        readReg1 = 4'h2;  // shift_bias_1
+        readReg2 = 4'h3;  // shift_bias_2
         next_state = S_INPUT;
       end
 
       S_INPUT: begin
-        // read weight_1, bias_1, weight_2, bias_2
-        readReg1 = 4'h4;
-        readReg2 = 4'h5;
-        readReg3 = 4'h6;
-        readReg4 = 4'h7;
-
-        if (any_ovf)
+        // Read weights and biases for input layer
+        readReg1 = 4'h4;  // weight_1
+        readReg2 = 4'h5;  // bias_1
+        readReg3 = 4'h6;  // weight_2
+        readReg4 = 4'h7;  // bias_2
+        
+        // CHECK FOR OVERFLOW - jump to IDLE immediately if detected
+        if (ovf_input_stage)
           next_state = S_IDLE;
         else
           next_state = S_OUTPUT;
       end
 
       S_OUTPUT: begin
-        // read weight_3, weight_4, bias_3
-        readReg1 = 4'h8;
-        readReg2 = 4'h9;
-        readReg3 = 4'hA;
-
-        if (any_ovf)
+        // Read weights and bias for output layer
+        readReg1 = 4'h8;  // weight_3
+        readReg2 = 4'h9;  // weight_4
+        readReg3 = 4'hA;  // bias_3
+        readReg4 = 4'hB;  // shift_bias_3 (will be latched for POST)
+        
+        // CHECK FOR OVERFLOW - jump to IDLE immediately if detected
+        if (ovf_output_stage)
           next_state = S_IDLE;
         else
           next_state = S_POST;
       end
 
       S_POST: begin
-        // read shift_bias_3
-        readReg1 = 4'hB;
-
-        if (any_ovf)
-          next_state = S_IDLE;
-        else
-          next_state = S_IDLE;
+        // shift_bias_3_reg already contains the shift value
+        next_state = S_IDLE;
       end
 
       S_IDLE: begin
@@ -326,6 +293,7 @@ module nn (
     endcase
   end
 
+  // FSM sequential logic
   always @(posedge clk or negedge resetn) begin
     if (!resetn) begin
       // RESET
@@ -335,17 +303,32 @@ module nn (
       final_output <= 32'd0;
       total_ovf <= 1'b0;
       total_zero <= 1'b0;
-      ovf_fsm_stage <= 3'd0;
-      zero_fsm_stage <= 3'd0;
+      ovf_fsm_stage <= 3'b111;
+      zero_fsm_stage <= 3'b111;
+      
+      inter_1_reg <= 32'd0;
+      inter_2_reg <= 32'd0;
+      inter_3_reg <= 32'd0;
+      inter_4_reg <= 32'd0;
+      inter_5_reg <= 32'd0;
+      shift_bias_3_reg <= 32'd0;
     end
     else begin
       // STATE UPDATE
       state <= next_state;
 
+      // Clear overflow/zero flags when starting new computation
+      if (state == S_IDLE && enable) begin
+        total_ovf <= 1'b0;
+        total_zero <= 1'b0;
+        ovf_fsm_stage <= 3'b111;
+        zero_fsm_stage <= 3'b111;
+      end
+
       // WEIGHT LOADING COUNTER
       if (state == S_LOAD_WB) begin
         if (load_idx == 4'd9) begin
-          load_idx      <= 4'd0;
+          load_idx <= 4'd0;
           weight_loaded <= 1'b1;
         end
         else begin
@@ -353,21 +336,54 @@ module nn (
         end
       end
 
-      // OUTPUT LATCHING
-      if (state == S_POST && !any_ovf) begin
-        final_output <= post_out;
+      // LATCH INTERMEDIATE RESULTS AT END OF EACH STAGE
+      if (state == S_PREPROCESS) begin
+        inter_1_reg <= inter_1;
+        inter_2_reg <= inter_2;
       end
 
-      // OVERFLOW / ZERO TRACKING
-      if (any_ovf) begin
-        total_ovf     <= 1'b1;
-        ovf_fsm_stage <= state;
-        final_output  <= MAX_POS;
+      if (state == S_INPUT) begin
+        inter_3_reg <= inter_3;
+        inter_4_reg <= inter_4;
+        
+        // Check for overflow in input stage
+        if (ovf_input_stage) begin
+          total_ovf <= 1'b1;
+          ovf_fsm_stage <= S_INPUT;
+          final_output <= MAX_POS;
+        end
+        
+        // Check for zero in input stage
+        if (zero_input_stage && !total_zero) begin
+          total_zero <= 1'b1;
+          zero_fsm_stage <= S_INPUT;
+        end
       end
 
-      if (any_zero) begin
-        total_zero      <= 1'b1;
-        zero_fsm_stage  <= state;
+      if (state == S_OUTPUT) begin
+        inter_5_reg <= inter_5;
+        shift_bias_3_reg <= readData4;  // Latch shift_bias_3 for POST state
+        
+        // Check for overflow in output stage
+        if (ovf_output_stage) begin
+          total_ovf <= 1'b1;
+          ovf_fsm_stage <= S_OUTPUT;
+          final_output <= MAX_POS;
+        end
+        
+        // Check for zero in output stage
+        if (zero_output_stage && !total_zero) begin
+          total_zero <= 1'b1;
+          zero_fsm_stage <= S_OUTPUT;
+        end
+      end
+
+      if (state == S_POST) begin
+        // Update final output at the end of POST state
+        // Only if no overflow occurred
+        if (!total_ovf) begin
+          final_output <= post_out;
+        end
       end
     end
   end
