@@ -97,68 +97,62 @@
 
 ```verilog
 S_DEACTIVATED: begin
-if (enable)
-    next_state = S_LOAD_WB;
+    if (enable && resetn)
+        next_state = S_LOAD_WB;
 end
 
 S_LOAD_WB: begin
-write = 1'b1;
-writeReg1 = rom_target_reg;
-writeData1 = rom_data;
+    write = 1'b1;
+    writeReg1 = rom_target_reg;
+    writeData1 = rom_data;
 
-if (weight_loaded)
-    next_state = S_PREPROCESS;
+    if (weight_loaded)
+        next_state = S_PREPROCESS;
 end
 
 S_PREPROCESS: begin
-// read shift_bias_1, shift_bias_2
-readReg1 = 4'h2;
-readReg2 = 4'h3;
-next_state = S_INPUT;
+    // Read shift biases
+    readReg1 = 4'h2;  // shift_bias_1
+    readReg2 = 4'h3;  // shift_bias_2
+    next_state = S_INPUT;
 end
 
 S_INPUT: begin
-// read weight_1, bias_1, weight_2, bias_2
-readReg1 = 4'h4;
-readReg2 = 4'h5;
-readReg3 = 4'h6;
-readReg4 = 4'h7;
+    // Read weights and biases for input layer
+    readReg1 = 4'h4;  // weight_1
+    readReg2 = 4'h5;  // bias_1
+    readReg3 = 4'h6;  // weight_2
+    readReg4 = 4'h7;  // bias_2
 
-if (any_ovf)
-    next_state = S_IDLE;
-else
-    next_state = S_OUTPUT;
+    // CHECK FOR OVERFLOW - jump to IDLE immediately if detected
+    if (ovf_input_stage)
+        next_state = S_IDLE;
+    else
+        next_state = S_OUTPUT;
 end
 
 S_OUTPUT: begin
-// read weight_3, weight_4, bias_3
-readReg1 = 4'h8;
-readReg2 = 4'h9;
-readReg3 = 4'hA;
+    // Read weights and bias for output layer
+    readReg1 = 4'h8;  // weight_3
+    readReg2 = 4'h9;  // weight_4
+    readReg3 = 4'hA;  // bias_3
+    readReg4 = 4'hB;  // shift_bias_3 (will be latched for POST)
 
-if (any_ovf)
-    next_state = S_IDLE;
-else
-    next_state = S_POST;
+    // CHECK FOR OVERFLOW - jump to IDLE immediately if detected
+    if (ovf_output_stage)
+        next_state = S_IDLE;
+    else
+        next_state = S_POST;
 end
 
 S_POST: begin
-// read shift_bias_3
-readReg1 = 4'hB;
-
-if (any_ovf)
-    next_state = S_IDLE;
-else
+    // shift_bias_3_reg already contains the shift value
     next_state = S_IDLE;
 end
 
 S_IDLE: begin
-if (enable)
-    next_state = S_PREPROCESS;
-end
-
-default: begin
-next_state = S_DEACTIVATED;
+    if (enable)
+        next_state = S_PREPROCESS;
 end
 ```
 
@@ -172,4 +166,6 @@ end
 
 **Εικόνα Εξόδου (Waveform)**
 
-![Waveform NN](Exercise%204/waveform_4-4.png)
+![Waveform NN](Exercise%204/waveform_4-1.png)
+![Waveform NN](Exercise%204/waveform_4-2.png)
+![Waveform NN](Exercise%204/waveform_4-3.png)
